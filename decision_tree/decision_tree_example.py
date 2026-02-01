@@ -14,6 +14,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import ListedColormap
+import os
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -417,6 +418,267 @@ def visualize_feature_distributions(data, feature_columns):
     plt.savefig('decision_tree_feature_distributions.png', dpi=300, bbox_inches='tight')
     print("\n特征分布图已保存为 'decision_tree_feature_distributions.png'")
 
+def create_animation(X, y, feature_columns, max_depth=5):
+    """创建决策树动画 - 逐步添加数据点展示树的生长过程"""
+    print("\n" + "=" * 70)
+    print("开始生成决策树动画...")
+    print("=" * 70)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 只使用前两个特征进行2D可视化
+    feature_x = feature_columns[0]  # 年龄
+    feature_y = feature_columns[1]  # 收入
+
+    X_2d = X[:, :2]
+
+    # 打乱数据顺序，确保早期帧包含两个类别
+    class_0_indices = np.where(y == 0)[0]
+    class_1_indices = np.where(y == 1)[0]
+
+    np.random.shuffle(class_0_indices)
+    np.random.shuffle(class_1_indices)
+
+    # 交替排列两类样本
+    indices = []
+    min_len = min(len(class_0_indices), len(class_1_indices))
+    for i in range(min_len):
+        indices.append(class_0_indices[i])
+        indices.append(class_1_indices[i])
+
+    # 添加剩余样本
+    remaining = class_0_indices[min_len:] if len(class_0_indices) > min_len else class_1_indices[min_len:]
+    indices.extend(remaining)
+
+    indices = np.array(indices)
+    X_shuffled = X_2d[indices]
+    y_shuffled = y[indices]
+
+    print(f"总共有 {len(X_2d)} 个数据点")
+    print(f"使用特征: {feature_x}, {feature_y}")
+    print(f"最大深度: {max_depth}")
+
+    # 从第6个点开始生成帧
+    start_points = 6
+
+    for n_points in range(start_points, len(X_shuffled) + 1):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+        # 当前数据
+        x_current = X_shuffled[:n_points]
+        y_current = y_shuffled[:n_points]
+
+        # 训练决策树
+        tree = DecisionTreeClassifier(
+            max_depth=max_depth,
+            min_samples_split=2,
+            min_samples_leaf=1,
+            random_state=42,
+            criterion='gini'
+        )
+        tree.fit(x_current, y_current)
+
+        # 计算准确率
+        y_pred = tree.predict(x_current)
+        accuracy = accuracy_score(y_current, y_pred)
+
+        # 获取树的信息
+        n_nodes = tree.tree_.node_count
+        n_leaves = tree.tree_.n_leaves
+        tree_depth = tree.tree_.max_depth
+
+        # 左图: 决策边界和分割区域
+        # 创建网格
+        x_min, x_max = x_current[:, 0].min() - 2, x_current[:, 0].max() + 2
+        y_min, y_max = x_current[:, 1].min() - 2, x_current[:, 1].max() + 2
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.5),
+                             np.arange(y_min, y_max, 0.5))
+
+        # 预测网格点
+        Z = tree.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        cmap_light = ListedColormap(['#FFB6C1', '#ADD8E6'])
+
+        # 绘制决策区域
+        ax1.contourf(xx, yy, Z, cmap=cmap_light, alpha=0.8)
+
+        # 绘制待添加的点(灰色)
+        if n_points < len(X_shuffled):
+            ax1.scatter(X_shuffled[n_points:, 0], X_shuffled[n_points:, 1],
+                       c='lightgray', s=40, alpha=0.4, edgecolors='gray',
+                       label='待添加点', zorder=1)
+
+        # 绘制当前已有的点
+        class_0_mask = y_current[:-1] == 0
+        class_1_mask = y_current[:-1] == 1
+
+        ax1.scatter(x_current[:-1][class_0_mask, 0], x_current[:-1][class_0_mask, 1],
+                   c='#e74c3c', s=80, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, label='正常客户', zorder=3)
+        ax1.scatter(x_current[:-1][class_1_mask, 0], x_current[:-1][class_1_mask, 1],
+                   c='#3498db', s=80, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, label='违约客户', zorder=3)
+
+        # 最新添加的点高亮
+        last_color = '#3498db' if y_current[-1] == 1 else '#e74c3c'
+        ax1.scatter([x_current[-1, 0]], [x_current[-1, 1]], s=300, c=last_color,
+                   alpha=0.95, edgecolors='yellow', linewidth=4,
+                   zorder=5, label='新增点')
+
+        # 绘制决策边界(分割线)
+        def draw_tree_boundary(node, x_min, x_max, y_min, y_max):
+            if tree.tree_.feature[node] != -2:  # 不是叶子节点
+                feature_idx = tree.tree_.feature[node]
+                threshold = tree.tree_.threshold[node]
+
+                if feature_idx == 0:  # 年龄 (x轴)
+                    ax1.axvline(x=threshold, ymin=0, ymax=1,
+                              color='black', linestyle='--', linewidth=2, alpha=0.7)
+                    draw_tree_boundary(tree.tree_.children_left[node],
+                                     x_min, threshold, y_min, y_max)
+                    draw_tree_boundary(tree.tree_.children_right[node],
+                                     threshold, x_max, y_min, y_max)
+                else:  # 收入 (y轴)
+                    ax1.axhline(y=threshold, xmin=0, xmax=1,
+                              color='black', linestyle='--', linewidth=2, alpha=0.7)
+                    draw_tree_boundary(tree.tree_.children_left[node],
+                                     x_min, x_max, y_min, threshold)
+                    draw_tree_boundary(tree.tree_.children_right[node],
+                                     x_min, x_max, threshold, y_max)
+
+        # 绘制决策边界
+        draw_tree_boundary(0, x_min, x_max, y_min, y_max)
+
+        ax1.set_xlabel(f'{feature_x}', fontsize=13)
+        ax1.set_ylabel(f'{feature_y}', fontsize=13)
+        ax1.set_title(f'决策树分割边界 - {n_points} 个数据点', fontsize=14, fontweight='bold')
+        ax1.legend(loc='center right', fontsize=9)
+        ax1.grid(alpha=0.3)
+
+        # 右图: 决策树结构可视化
+        ax2.axis('off')
+        ax2.set_xlim(0, 10)
+        ax2.set_ylim(0, 10)
+
+        # 绘制简化的决策树结构
+        def plot_tree_node(node, x, y, width, level, max_level):
+            if level > max_level or node >= n_nodes:
+                return
+
+            feature_idx = tree.tree_.feature[node]
+            threshold = tree.tree_.threshold[node]
+
+            if feature_idx == -2:  # 叶子节点
+                value = tree.tree_.value[node][0]
+                pred_class = 0 if value[0] > value[1] else 1
+                color = '#e74c3c' if pred_class == 0 else '#3498db'
+                label = '正常' if pred_class == 0 else '违约'
+
+                circle = plt.Circle((x, y), 0.4, color=color, alpha=0.7, ec='black', lw=2)
+                ax2.add_patch(circle)
+                ax2.text(x, y, f'{label}\n{int(value.sum())}个',
+                        ha='center', va='center', fontsize=9, fontweight='bold')
+            else:  # 决策节点
+                feature_name = feature_x if feature_idx == 0 else feature_y
+
+                circle = plt.Circle((x, y), 0.4, color='#2ecc71', alpha=0.7, ec='black', lw=2)
+                ax2.add_patch(circle)
+                ax2.text(x, y, f'{feature_name}\n≤{threshold:.1f}',
+                        ha='center', va='center', fontsize=8, fontweight='bold')
+
+                # 递归绘制子节点
+                if width > 0.8:
+                    left_child = tree.tree_.children_left[node]
+                    right_child = tree.tree_.children_right[node]
+
+                    # 左边连接线
+                    ax2.plot([x, x - width/2], [y, y - 1.5], 'k-', lw=2)
+                    ax2.text(x - width/4, y - 0.75, '是', ha='center', fontsize=8,
+                            bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7))
+                    plot_tree_node(left_child, x - width/2, y - 1.5, width/2, level + 1, max_level)
+
+                    # 右边连接线
+                    ax2.plot([x, x + width/2], [y, y - 1.5], 'k-', lw=2)
+                    ax2.text(x + width/4, y - 0.75, '否', ha='center', fontsize=8,
+                            bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7))
+                    plot_tree_node(right_child, x + width/2, y - 1.5, width/2, level + 1, max_level)
+
+        # 从根节点开始绘制
+        plot_tree_node(0, 5, 9, 4, 0, min(4, max_depth))
+
+        # 添加树的信息
+        tree_info = f'决策树信息:\n'
+        tree_info += f'数据点: {n_points}/{len(X_shuffled)}\n'
+        tree_info += f'节点数: {n_nodes}\n'
+        tree_info += f'叶节点数: {n_leaves}\n'
+        tree_info += f'当前深度: {tree_depth}\n'
+        tree_info += f'训练准确率: {accuracy*100:.1f}%\n'
+        tree_info += f'正常客户: {(y_current==0).sum()}\n'
+        tree_info += f'违约客户: {(y_current==1).sum()}'
+
+        ax2.text(0.02, 0.98, tree_info, transform=ax2.transAxes, fontsize=10,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
+
+        ax2.set_xlim(0, 10)
+        ax2.set_ylim(0, 10)
+        ax2.set_title('决策树结构生长', fontsize=14, fontweight='bold')
+
+        plt.tight_layout()
+
+        # 保存帧
+        frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if n_points % 10 == 0 or n_points == len(X_shuffled):
+            print(f"  已生成 {n_points}/{len(X_shuffled)} 帧 (节点: {n_nodes}, 深度: {tree_depth})")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for n_points in range(start_points, len(X_shuffled) + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        gif_path = 'decision_tree_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=400,
+                       loop=0)
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装，无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    print("\n动画说明:")
+    print("- 红色点: 正常客户 (Class 0)")
+    print("- 蓝色点: 违约客户 (Class 1)")
+    print("- 黄色光圈: 最新添加的数据点")
+    print("- 灰色点: 待添加的数据点")
+    print("- 左图: 决策边界演化")
+    print("  * 彩色区域表示预测类别")
+    print("  * 黑色虚线表示决策树的分割线")
+    print("- 右图: 决策树结构生长")
+    print("  * 绿色节点: 决策节点(进行判断)")
+    print("  * 红色节点: 预测为正常")
+    print("  * 蓝色节点: 预测为违约")
+    print("- 观察决策树如何随着数据增加而生长")
+    print("- 观察决策边界如何变得更加复杂")
+
 def main():
     """主函数"""
     print("决策树算法示例 - 贷款违约预测")
@@ -522,6 +784,12 @@ def main():
     visualize_tree_principle()
     visualize_feature_distributions(data, feature_columns)
 
+    # 11. 生成动画
+    print("\n" + "=" * 70)
+    print("步骤6: 生成决策树动画")
+    print("=" * 70)
+    create_animation(X, y, feature_columns, max_depth=4)
+
     print("\n" + "=" * 70)
     print("决策树分析完成!")
     print("\n生成文件:")
@@ -533,6 +801,7 @@ def main():
     print("  - decision_tree_boundary.png (决策边界)")
     print("  - decision_tree_principle.png (决策树原理)")
     print("  - decision_tree_feature_distributions.png (特征分布)")
+    print("  - decision_tree_animation.gif (学习过程动画)")
     print("=" * 70)
 
 if __name__ == "__main__":
