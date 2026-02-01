@@ -14,6 +14,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+import os
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -363,6 +364,228 @@ def visualize_feature_distributions(data, feature_columns):
     plt.savefig('knn_feature_distribution.png', dpi=300, bbox_inches='tight')
     print("特征分布图已保存为 'knn_feature_distribution.png'")
 
+def create_animation(data, feature_columns):
+    """创建KNN动画 - 逐步添加数据点并展示不同K值的影响"""
+    print("\n" + "=" * 70)
+    print("开始生成KNN动画...")
+    print("=" * 70)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 使用前两个特征进行2D可视化
+    feature_x = feature_columns[0]  # 含糖量
+    feature_y = feature_columns[1]  # 酸度
+
+    X_2d = data[[feature_x, feature_y]].values
+    y = data['品质'].values
+
+    # 打乱数据顺序，确保早期帧包含两个类别
+    class_0_indices = np.where(y == 0)[0]
+    class_1_indices = np.where(y == 1)[0]
+
+    np.random.shuffle(class_0_indices)
+    np.random.shuffle(class_1_indices)
+
+    # 交替排列两类样本
+    indices = []
+    min_len = min(len(class_0_indices), len(class_1_indices))
+    for i in range(min_len):
+        indices.append(class_0_indices[i])
+        indices.append(class_1_indices[i])
+
+    # 添加剩余样本
+    remaining = class_0_indices[min_len:] if len(class_0_indices) > min_len else class_1_indices[min_len:]
+    indices.extend(remaining)
+
+    indices = np.array(indices)
+    X_shuffled = X_2d[indices]
+    y_shuffled = y[indices]
+
+    print(f"总共有 {len(X_2d)} 个数据点")
+    print(f"使用特征: {feature_x}, {feature_y}")
+
+    # 从第6个点开始生成帧
+    start_points = 6
+
+    for n_points in range(start_points, len(X_shuffled) + 1):
+        # 创建三个子图，展示不同K值
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+        # 当前数据
+        x_current = X_shuffled[:n_points]
+        y_current = y_shuffled[:n_points]
+
+        # 标准化
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        x_current_scaled = scaler.fit_transform(x_current)
+
+        # 创建网格
+        x_min, x_max = x_current_scaled[:, 0].min() - 0.5, x_current_scaled[:, 0].max() + 0.5
+        y_min, y_max = x_current_scaled[:, 1].min() - 0.5, x_current_scaled[:, 1].max() + 0.5
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.03),
+                             np.arange(y_min, y_max, 0.03))
+
+        cmap_light = ListedColormap(['#FFB6C1', '#ADD8E6'])
+        cmap_bold = ListedColormap(['#FF0000', '#0000FF'])
+
+        # 动态调整K值，确保不超过样本数量
+        # 确保K值是奇数且不超过样本数-1
+        max_k = min(n_points - 1, 15)
+        if max_k < 1:
+            max_k = 1
+        # 确保是奇数
+        if max_k % 2 == 0:
+            max_k -= 1
+
+        # 根据样本数量动态选择K值
+        if n_points < 8:
+            k_values = [1, 3, max_k]
+        elif n_points < 12:
+            k_values = [1, 5, max_k]
+        else:
+            k_values = [1, 5, 15]
+
+        # 过滤掉超过样本数的K值
+        k_values = [k for k in k_values if k < n_points]
+        if len(k_values) < 3:
+            # 如果不够3个K值，补全
+            while len(k_values) < 3:
+                next_k = k_values[-1] + 2 if k_values else 1
+                if next_k < n_points:
+                    k_values.append(next_k)
+                else:
+                    break
+
+        for idx, k in enumerate(k_values):
+            ax = axes[idx]
+
+            # 训练KNN模型
+            model = KNeighborsClassifier(n_neighbors=k)
+            try:
+                model.fit(x_current_scaled, y_current)
+            except ValueError:
+                # 如果K值仍然超过样本数，跳过这个K值
+                continue
+
+            # 计算准确率
+            y_pred = model.predict(x_current_scaled)
+            accuracy = accuracy_score(y_current, y_pred)
+
+            # 计算准确率
+            y_pred = model.predict(x_current_scaled)
+            accuracy = accuracy_score(y_current, y_pred)
+
+            # 预测网格点
+            Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+            Z = Z.reshape(xx.shape)
+
+            # 绘制决策边界
+            ax.contourf(xx, yy, Z, cmap=cmap_light, alpha=0.8)
+
+            # 绘制待添加的点(灰色)
+            if n_points < len(X_shuffled):
+                remaining_x = scaler.transform(X_shuffled[n_points:])
+                ax.scatter(remaining_x[:, 0], remaining_x[:, 1],
+                          c='lightgray', s=40, alpha=0.4, edgecolors='gray',
+                          zorder=1)
+
+            # 绘制当前已有的点
+            class_0_mask = y_current[:-1] == 0
+            class_1_mask = y_current[:-1] == 1
+
+            ax.scatter(x_current_scaled[:-1][class_0_mask, 0],
+                      x_current_scaled[:-1][class_0_mask, 1],
+                      c='#e74c3c', s=80, alpha=0.8, edgecolors='black',
+                      linewidth=1.5, label='普通品质', zorder=3)
+            ax.scatter(x_current_scaled[:-1][class_1_mask, 0],
+                      x_current_scaled[:-1][class_1_mask, 1],
+                      c='#3498db', s=80, alpha=0.8, edgecolors='black',
+                      linewidth=1.5, label='优质品质', zorder=3)
+
+            # 最新添加的点高亮
+            last_scaled = scaler.transform([x_current[-1]])[0]
+            last_color = '#3498db' if y_current[-1] == 1 else '#e74c3c'
+            ax.scatter([last_scaled[0]], [last_scaled[1]], s=300, c=last_color,
+                      alpha=0.95, edgecolors='yellow', linewidth=4,
+                      zorder=5, label='新增点')
+
+            # 添加信息框
+            info_text = f'K={k}\n'
+            info_text += f'数据点: {n_points}/{len(X_shuffled)}\n'
+            info_text += f'准确率: {accuracy*100:.1f}%\n'
+            info_text += f'普通: {(y_current==0).sum()}\n'
+            info_text += f'优质: {(y_current==1).sum()}'
+
+            ax.text(0.02, 0.98, info_text, transform=ax.transAxes, fontsize=10,
+                   verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
+
+            ax.set_xlim(xx.min(), xx.max())
+            ax.set_ylim(yy.min(), yy.max())
+            ax.set_xlabel(f'{feature_x} (标准化)', fontsize=11)
+            ax.set_ylabel(f'{feature_y} (标准化)', fontsize=11)
+            ax.set_title(f'K={k} 的决策边界', fontsize=13, fontweight='bold')
+            ax.legend(loc='center right', fontsize=8)
+            ax.grid(alpha=0.3)
+
+        plt.suptitle(f'KNN决策边界演化 - 第 {n_points} 个数据点', fontsize=15, fontweight='bold')
+        plt.tight_layout()
+
+        # 如果所有子图都失败了，跳过这一帧
+        if not any([ax.has_data() for ax in axes]):
+            plt.close(fig)
+            continue
+
+        # 保存帧
+        frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if n_points % 10 == 0 or n_points == len(X_shuffled):
+            print(f"  已生成 {n_points}/{len(X_shuffled)} 帧")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for n_points in range(start_points, len(X_shuffled) + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        gif_path = 'knn_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=400,
+                       loop=0)
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装，无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    print("\n动画说明:")
+    print("- 红色点: 普通品质红酒 (Class 0)")
+    print("- 蓝色点: 优质品质红酒 (Class 1)")
+    print("- 黄色光圈: 最新添加的数据点")
+    print("- 灰色点: 待添加的数据点")
+    print("- 三个子图分别展示不同K值的决策边界")
+    print("- K值会根据样本数量动态调整")
+    print("- 观察不同K值对决策边界平滑度的影响:")
+    print("  * K=1: 决策边界最复杂，容易过拟合")
+    print("  * K=5: 决策边界较平滑，泛化能力较好")
+    print("  * K=15: 决策边界最平滑，可能欠拟合")
+
 def main():
     """主函数"""
     print("K近邻(KNN)算法示例 - 红酒品质预测")
@@ -475,6 +698,9 @@ def main():
     visualize_distances_comparison(X_train, y_train, X_test, y_test)
     visualize_feature_distributions(data, feature_columns)
 
+    # 9. 生成动画
+    create_animation(data, feature_columns)
+
     print(f"\n{'='*70}")
     print("KNN分析完成!")
     print("\n生成文件:")
@@ -483,6 +709,7 @@ def main():
     print("  - knn_principle.png (KNN原理图)")
     print("  - knn_distance_metrics.png (距离度量对比)")
     print("  - knn_feature_distribution.png (特征分布)")
+    print("  - knn_animation.gif (学习过程动画)")
     print(f"{'='*70}")
 
 if __name__ == "__main__":
