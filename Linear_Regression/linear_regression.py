@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+import os
 
 # 设置 matplotlib 使用非交互式后端,避免 Qt 平台插件问题
 import matplotlib
@@ -77,6 +78,124 @@ def visualize_results(X, y, model, y_test, y_pred):
     print("\n可视化结果已保存为 'linear_regression_result.png'")
     # 不再调用 plt.show(),避免显示问题
 
+def create_animation(X, y):
+    """创建线性回归动画 - 逐步添加数据点"""
+    print("\n" + "=" * 50)
+    print("开始生成线性回归动画...")
+    print("=" * 50)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 打乱数据顺序,使动画更有趣
+    indices = np.random.permutation(len(X))
+    X_shuffled = X[indices]
+    y_shuffled = y[indices]
+
+    print(f"总共有 {len(X)} 个数据点")
+
+    # 为每个数据点数量生成一帧(至少需要2个点才能拟合)
+    for n_points in range(2, len(X_shuffled) + 1):
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # 当前数据点
+        x_current = X_shuffled[:n_points].flatten()
+        y_current = y_shuffled[:n_points]
+
+        # 绘制所有可能的点(灰色显示未添加的)
+        ax.scatter(X_shuffled[n_points:].flatten(), y_shuffled[n_points:],
+                  c='lightgray', s=80, alpha=0.3, edgecolors='gray', label='待添加点')
+
+        # 绘制当前已有的点
+        ax.scatter(x_current[:-1], y_current[:-1], c='blue', s=100,
+                  alpha=0.7, edgecolors='black', linewidth=1, label='已有数据点', zorder=4)
+
+        # 最新添加的点高亮显示
+        ax.scatter([x_current[-1]], [y_current[-1]], s=300, c='red',
+                  alpha=0.8, edgecolors='yellow', linewidth=3, zorder=5, label='新增点')
+
+        # 训练线性回归
+        model = LinearRegression()
+        model.fit(x_current.reshape(-1, 1), y_current)
+
+        # 绘制回归线
+        x_min, x_max = X.min() - 5, X.max() + 5
+        x_line = np.array([[x_min], [x_max]])
+        y_line = model.predict(x_line)
+        ax.plot(x_line, y_line, 'b-', linewidth=3, label='回归线', zorder=3)
+
+        # 计算统计信息
+        y_pred = model.predict(x_current.reshape(-1, 1))
+        mse = np.mean((y_current - y_pred) ** 2)
+        ss_res = np.sum((y_current - y_pred) ** 2)
+        ss_tot = np.sum((y_current - np.mean(y_current)) ** 2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+        # 添加信息框
+        info_text = f'数据点数: {n_points}/{len(X)}\n'
+        info_text += f'回归方程: y = {model.coef_[0]:.4f}x + {model.intercept_:.4f}\n'
+        info_text += f'MSE: {mse:.4f}\n'
+        info_text += f'R2: {r2:.4f}'
+
+        ax.text(0.02, 0.98, info_text, transform=ax.transAxes, fontsize=12,
+               verticalalignment='top',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
+
+        # 设置图表属性
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y.min() - 20, y.max() + 20)
+        ax.set_xlabel('面积 (平方米)', fontsize=14)
+        ax.set_ylabel('价格 (万元)', fontsize=14)
+        ax.set_title(f'线性回归动态演示 - 第 {n_points} 个数据点', fontsize=16, fontweight='bold')
+        ax.legend(loc='lower right', fontsize=11)
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        # 保存这一帧
+        frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if n_points % 5 == 0 or n_points == len(X):
+            print(f"  已生成 {n_points}/{len(X)} 帧")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 尝试生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for n_points in range(2, len(X_shuffled) + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        # 保存为GIF
+        gif_path = 'linear_regression_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=600,  # 每帧600毫秒
+                       loop=0)  # 无限循环
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装,无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    print("\n📊 动画说明:")
+    print("- 蓝色点: 已添加的数据点")
+    print("- 红色光圈: 最新添加的点")
+    print("- 灰色点: 待添加的数据点")
+    print("- 蓝色线: 当前学习到的回归线")
+    print("- 观察回归线如何随着数据增加而变化")
+
 def main():
     """主函数"""
     print("线性回归示例 - 房价预测")
@@ -123,6 +242,9 @@ def main():
 
     # 8. 可视化
     visualize_results(X, y, model, y_test, y_pred)
+
+    # 9. 生成动画
+    create_animation(X, y)
 
     print("\n" + "=" * 50)
     print("线性回归分析完成!")
