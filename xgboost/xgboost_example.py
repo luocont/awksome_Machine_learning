@@ -7,12 +7,13 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-from sklearn.metrics import roc_curve, auc, roc_auc_score, precision_recall_curve
+from sklearn.metrics import roc_curve, auc, roc_auc_score, precision_recall_curve, log_loss
 from sklearn.preprocessing import StandardScaler
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -543,6 +544,247 @@ def visualize_xgboost_principle():
     plt.savefig('xgboost_principle.png', dpi=300, bbox_inches='tight')
     print("\nXGBoost原理图已保存为 'xgboost_principle.png'")
 
+def create_animation(X_train, y_train, X_test, y_test, feature_columns, max_iterations=50):
+    """创建XGBoost动画 - 展示Boosting迭代过程中模型性能的变化"""
+    print("\n" + "=" * 70)
+    print("开始生成XGBoost动画...")
+    print("=" * 70)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 只使用前两个特征进行2D可视化
+    feature_x = feature_columns[0]  # 年龄
+    feature_y = feature_columns[1]  # 收入
+
+    X_train_2d = X_train[:, :2]
+    X_test_2d = X_test[:, :2]
+
+    print(f"使用特征: {feature_x}, {feature_y}")
+    print(f"最大迭代次数: {max_iterations}")
+
+    # 用于记录历史
+    train_acc_history = []
+    test_acc_history = []
+    train_loss_history = []
+    test_loss_history = []
+
+    # 从第1次迭代开始，每次增加
+    for iteration in range(1, max_iterations + 1):
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+        # 训练当前迭代次数的模型
+        if XGBOOST_AVAILABLE:
+            model = xgb.XGBClassifier(
+                n_estimators=iteration,
+                learning_rate=0.1,
+                max_depth=4,
+                random_state=42,
+                eval_metric='logloss'
+            )
+        else:
+            model = GradientBoostingClassifier(
+                n_estimators=iteration,
+                learning_rate=0.1,
+                max_depth=4,
+                random_state=42
+            )
+
+        model.fit(X_train_2d, y_train)
+
+        # 计算准确率
+        train_pred = model.predict(X_train_2d)
+        test_pred = model.predict(X_test_2d)
+        train_acc = accuracy_score(y_train, train_pred)
+        test_acc = accuracy_score(y_test, test_pred)
+
+        # 计算损失（使用logloss）
+        train_proba = model.predict_proba(X_train_2d)[:, 1]
+        test_proba = model.predict_proba(X_test_2d)[:, 1]
+        train_loss = log_loss(y_train, train_proba)
+        test_loss = log_loss(y_test, test_proba)
+
+        # 记录历史
+        train_acc_history.append(train_acc)
+        test_acc_history.append(test_acc)
+        train_loss_history.append(train_loss)
+        test_loss_history.append(test_loss)
+
+        # 左上图: 决策边界演化
+        ax1 = axes[0, 0]
+
+        # 创建网格
+        x_min, x_max = X_train_2d[:, 0].min() - 2, X_train_2d[:, 0].max() + 2
+        y_min, y_max = X_train_2d[:, 1].min() - 2, X_train_2d[:, 1].max() + 2
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.5),
+                             np.arange(y_min, y_max, 0.5))
+
+        # 预测网格点
+        Z = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
+        Z = Z.reshape(xx.shape)
+
+        # 绘制概率热力图
+        contour = ax1.contourf(xx, yy, Z, levels=50, cmap='RdBu_r', alpha=0.8)
+        ax1.contour(xx, yy, Z, levels=[0.5], colors='black', linewidths=2)
+
+        # 绘制训练数据点
+        class_0_mask = y_train == 0
+        class_1_mask = y_train == 1
+
+        ax1.scatter(X_train_2d[class_0_mask, 0], X_train_2d[class_0_mask, 1],
+                   c='#e74c3c', s=50, alpha=0.6, edgecolors='black',
+                   linewidth=1, label='正常', zorder=3)
+        ax1.scatter(X_train_2d[class_1_mask, 0], X_train_2d[class_1_mask, 1],
+                   c='#3498db', s=50, alpha=0.6, edgecolors='black',
+                   linewidth=1, label='违约', zorder=3)
+
+        ax1.set_xlabel(f'{feature_x}', fontsize=12)
+        ax1.set_ylabel(f'{feature_y}', fontsize=12)
+        ax1.set_title(f'决策边界演化 - 迭代 {iteration} 次', fontsize=13, fontweight='bold')
+        ax1.legend(fontsize=10)
+        ax1.grid(alpha=0.3)
+
+        # 右上图: 准确率曲线
+        ax2 = axes[0, 1]
+
+        ax2.plot(range(1, iteration + 1), train_acc_history, 'o-',
+                color='#e74c3c', linewidth=2, markersize=4, label='训练集准确率')
+        ax2.plot(range(1, iteration + 1), test_acc_history, 's-',
+                color='#3498db', linewidth=2, markersize=4, label='测试集准确率')
+
+        # 标注当前点
+        ax2.scatter([iteration], [train_acc], s=200, c='#e74c3c',
+                   marker='*', edgecolors='black', linewidth=2, zorder=5)
+        ax2.scatter([iteration], [test_acc], s=200, c='#3498db',
+                   marker='*', edgecolors='black', linewidth=2, zorder=5)
+
+        ax2.set_xlim(0, max_iterations + 5)
+        ax2.set_ylim(0.4, 1.0)
+        ax2.set_xlabel('迭代次数', fontsize=12)
+        ax2.set_ylabel('准确率', fontsize=12)
+        ax2.set_title('准确率随迭代变化', fontsize=13, fontweight='bold')
+        ax2.legend(fontsize=10)
+        ax2.grid(alpha=0.3)
+
+        # 左下图: 损失曲线
+        ax3 = axes[1, 0]
+
+        ax3.plot(range(1, iteration + 1), train_loss_history, 'o-',
+                color='#e74c3c', linewidth=2, markersize=4, label='训练集损失')
+        ax3.plot(range(1, iteration + 1), test_loss_history, 's-',
+                color='#3498db', linewidth=2, markersize=4, label='测试集损失')
+
+        # 标注当前点
+        ax3.scatter([iteration], [train_loss], s=200, c='#e74c3c',
+                   marker='*', edgecolors='black', linewidth=2, zorder=5)
+        ax3.scatter([iteration], [test_loss], s=200, c='#3498db',
+                   marker='*', edgecolors='black', linewidth=2, zorder=5)
+
+        ax3.set_xlim(0, max_iterations + 5)
+        ax3.set_ylim(0, max(max(train_loss_history), max(test_loss_history)) * 1.1)
+        ax3.set_xlabel('迭代次数', fontsize=12)
+        ax3.set_ylabel('对数损失 (LogLoss)', fontsize=12)
+        ax3.set_title('损失随迭代变化', fontsize=13, fontweight='bold')
+        ax3.legend(fontsize=10)
+        ax3.grid(alpha=0.3)
+
+        # 右下图: 模型信息
+        ax4 = axes[1, 1]
+        ax4.axis('off')
+
+        info_text = f"""
+        XGBoost 模型信息
+
+        当前迭代: {iteration} / {max_iterations}
+
+        训练集:
+        - 准确率: {train_acc*100:.2f}%
+        - 损失: {train_loss:.4f}
+        - 正常样本: {(y_train==0).sum()}
+        - 违约样本: {(y_train==1).sum()}
+
+        测试集:
+        - 准确率: {test_acc*100:.2f}%
+        - 损失: {test_loss:.4f}
+        - 正常样本: {(y_test==0).sum()}
+        - 违约样本: {(y_test==1).sum()}
+
+        差异:
+        - 准确率差距: {(train_acc - test_acc)*100:.2f}%
+        - 损失差距: {(train_loss - test_loss):.4f}
+        """
+
+        ax4.text(0.1, 0.5, info_text, transform=ax4.transAxes,
+                fontsize=11, verticalalignment='center',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+        # 添加过拟合警告
+        if iteration > 10 and (train_acc - test_acc) > 0.15:
+            warning_text = "警告: 可能出现过拟合!"
+            ax4.text(0.5, 0.1, warning_text, transform=ax4.transAxes,
+                    fontsize=14, ha='center', color='red', fontweight='bold')
+
+        ax4.set_xlim(0, 1)
+        ax4.set_ylim(0, 1)
+        ax4.set_title('模型统计信息', fontsize=13, fontweight='bold')
+
+        plt.suptitle(f'XGBoost Boosting 过程 - 第 {iteration} 次迭代',
+                    fontsize=15, fontweight='bold')
+        plt.tight_layout()
+
+        # 保存帧
+        frame_filename = os.path.join(frames_dir, f'frame_{iteration:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if iteration % 5 == 0 or iteration == max_iterations:
+            print(f"  已生成 {iteration}/{max_iterations} 帧 "
+                  f"(训练准确率: {train_acc*100:.1f}%, 测试准确率: {test_acc*100:.1f}%)")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for iteration in range(1, max_iterations + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{iteration:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        gif_path = 'xgboost_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=300,
+                       loop=0)
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装，无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    print("\n动画说明:")
+    print("- 左上图: 决策边界演化")
+    print("  * 红色区域: 预测为违约")
+    print("  * 蓝色区域: 预测为正常")
+    print("  * 黑色线: 决策边界 (概率=0.5)")
+    print("- 右上图: 准确率随迭代变化")
+    print("  * 观察训练集和测试集准确率的变化")
+    print("  * 红色星: 训练集当前准确率")
+    print("  * 蓝色星: 测试集当前准确率")
+    print("- 左下图: 损失随迭代变化")
+    print("  * 损失越低表示模型越好")
+    print("  * 观察是否出现过拟合")
+    print("- 右下图: 模型统计信息")
+    print("  * 显示当前迭代的详细性能指标")
+    print("- 观察XGBoost如何通过迭代逐步提升性能")
+
 def main():
     """主函数"""
     print("XGBoost算法示例 - 贷款违约预测")
@@ -664,6 +906,12 @@ def main():
     visualize_feature_distributions(data, feature_columns)
     visualize_xgboost_principle()
 
+    # 11. 生成动画
+    print("\n" + "=" * 70)
+    print("步骤7: 生成XGBoost动画")
+    print("=" * 70)
+    create_animation(X_train, y_train, X_test, y_test, feature_columns, max_iterations=30)
+
     print("\n" + "=" * 70)
     print("XGBoost分析完成!")
     print("\n生成文件:")
@@ -676,6 +924,7 @@ def main():
     print("  - xgboost_boosting_process.png (Boosting过程)")
     print("  - xgboost_feature_distributions.png (特征分布)")
     print("  - xgboost_principle.png (XGBoost原理)")
+    print("  - xgboost_animation.gif (Boosting迭代过程动画)")
     print("=" * 70)
 
 if __name__ == "__main__":

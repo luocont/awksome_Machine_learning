@@ -14,6 +14,7 @@
 | **SVM** | 分类 | 文本分类、生物信息学 | ⭐⭐ |
 | **K-Means** | 聚类 | 客户分群、图像压缩 | ⭐ |
 | **决策树** | 分类 | 风险评估、医疗诊断 | ⭐⭐ |
+| **随机森林** | 集成学习 | 金融风控、信用评分 | ⭐⭐⭐ |
 | **XGBoost** | 集成学习 | 金融风控、竞赛项目 | ⭐⭐⭐ |
 
 ---
@@ -63,6 +64,11 @@ awksome_Machine_learning/
 ├── decision_tree/              # 决策树
 │   ├── decision_tree_example.py
 │   └── decision_tree_README.md
+├── random_forest/              # 随机森林
+│   ├── random_forest_example.py
+│   ├── random_forest_sample.csv
+│   ├── generate_data.py
+│   └── README.md
 └── xgboost/                    # XGBoost
     ├── xgboost_example.py
     └── xgboost_README.md
@@ -82,8 +88,9 @@ awksome_Machine_learning/
 5. **决策树** - 理解树形模型和可解释性
 6. **SVM** - 掌握核方法和边界理论
 
-### 第三阶段：高级算法（1-2周）
-7. **XGBoost** - 学习集成学习和梯度提升
+### 第三阶段：高级算法（2-3周）
+7. **随机森林** - 学习Bagging集成学习方法
+8. **XGBoost** - 学习Boosting集成学习和梯度提升
 
 ---
 
@@ -128,6 +135,11 @@ awksome_Machine_learning/
 - **用途**: 分类和回归
 - **示例**: 贷款违约预测
 - **核心概念**: 信息增益、基尼系数、剪枝
+
+### 随机森林 (Random Forest)
+- **用途**: 分类和回归
+- **示例**: 贷款违约预测
+- **核心概念**: Bootstrap采样、随机特征选择、集成投票
 
 ### XGBoost
 - **用途**: 高性能分类/回归
