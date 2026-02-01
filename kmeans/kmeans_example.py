@@ -14,6 +14,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
+import os
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -427,6 +428,155 @@ def visualize_radar_chart(centroids_original, feature_columns):
     plt.savefig('kmeans_radar_chart.png', dpi=300, bbox_inches='tight')
     print("雷达图已保存为 'kmeans_radar_chart.png'")
 
+def create_animation(X_scaled, n_clusters=4):
+    """创建K-Means动画 - 逐步添加数据点展示聚类演化"""
+    print("\n" + "=" * 70)
+    print("开始生成K-Means动画...")
+    print("=" * 70)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 使用PCA降维到2D便于可视化
+    pca = PCA(n_components=2)
+    X_2d = pca.fit_transform(X_scaled)
+
+    print(f"使用 {n_clusters} 个聚类")
+    print(f"总共有 {len(X_scaled)} 个数据点")
+
+    # 定义颜色
+    colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6']
+
+    # 打乱数据顺序
+    indices = np.random.permutation(len(X_scaled))
+    X_shuffled = X_scaled[indices]
+    X_2d_shuffled = X_2d[indices]
+
+    # 从少量数据点开始，逐步添加
+    start_points = max(n_clusters * 2, 10)  # 至少是聚类数的2倍
+
+    for n_points in range(start_points, len(X_shuffled) + 1):
+        # 取前n_points个数据点
+        x_current = X_shuffled[:n_points]
+        x_2d_current = X_2d_shuffled[:n_points]
+
+        # 训练K-Means
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        kmeans.fit(x_current)
+
+        labels = kmeans.labels_
+        centers = kmeans.cluster_centers_
+        centers_2d = pca.transform(centers)
+
+        # 计算评估指标
+        inertia = kmeans.inertia_
+        silhouette = silhouette_score(x_current, labels)
+
+        # 创建图形
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+        # 左图: 2D聚类结果
+        for i in range(n_clusters):
+            cluster_points = x_2d_current[labels == i]
+            ax1.scatter(cluster_points[:, 0], cluster_points[:, 1],
+                       c=colors[i % len(colors)], label=f'聚类 {i}',
+                       alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
+
+        # 绘制中心点
+        ax1.scatter(centers_2d[:, 0], centers_2d[:, 1],
+                   c='black', marker='X', s=400, edgecolors='yellow',
+                   linewidth=3, label='聚类中心', zorder=5)
+
+        # 绘制待添加的点(灰色)
+        if n_points < len(X_shuffled):
+            remaining_2d = X_2d_shuffled[n_points:]
+            ax1.scatter(remaining_2d[:, 0], remaining_2d[:, 1],
+                       c='lightgray', s=30, alpha=0.3, edgecolors='gray',
+                       label='待添加点', zorder=1)
+
+        ax1.set_xlabel(f'主成分1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
+        ax1.set_ylabel(f'主成分2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
+        ax1.set_title(f'K-Means聚类演化 - {n_points} 个数据点', fontsize=14, fontweight='bold')
+        ax1.legend(fontsize=9, loc='upper right')
+        ax1.grid(alpha=0.3)
+
+        # 右图: 惯性变化曲线
+        if hasattr(create_animation, 'inertia_history'):
+            create_animation.inertia_history.append(inertia)
+            create_animation.points_history.append(n_points)
+        else:
+            create_animation.inertia_history = [inertia]
+            create_animation.points_history = [n_points]
+
+        ax2.plot(create_animation.points_history, create_animation.inertia_history,
+                'o-', color='#e74c3c', linewidth=2, markersize=8)
+        ax2.axhline(y=inertia, color='blue', linestyle='--', linewidth=2,
+                   alpha=0.5, label=f'当前惯性: {inertia:.2f}')
+
+        # 标注当前点
+        ax2.scatter([n_points], [inertia], s=200, c='red', marker='*',
+                   edgecolors='black', linewidth=2, zorder=5)
+
+        ax2.set_xlabel('数据点数量', fontsize=12)
+        ax2.set_ylabel('惯性 (Inertia)', fontsize=12)
+        ax2.set_title('惯性随数据增加的变化', fontsize=13, fontweight='bold')
+        ax2.legend(fontsize=10)
+        ax2.grid(alpha=0.3)
+
+        plt.tight_layout()
+
+        # 保存帧
+        frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if n_points % 10 == 0 or n_points == len(X_shuffled):
+            print(f"  已生成 {n_points}/{len(X_shuffled)} 帧 (惯性: {inertia:.2f})")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for n_points in range(start_points, len(X_shuffled) + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        gif_path = 'kmeans_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=300,
+                       loop=0)
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装，无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    # 清理临时数据
+    if hasattr(create_animation, 'inertia_history'):
+        delattr(create_animation, 'inertia_history')
+    if hasattr(create_animation, 'points_history'):
+        delattr(create_animation, 'points_history')
+
+    print("\n动画说明:")
+    print("- 左图: K-Means聚类结果演化")
+    print("  * 彩色散点: 不同聚类的样本")
+    print("  * 黑色X: 聚类中心")
+    print("  * 灰色点: 待添加的数据点")
+    print("- 右图: 惯性随数据增加的变化曲线")
+    print("  * 惯性越小表示聚类越紧密")
+    print("  * 观察惯性如何随着数据增加而变化")
+    print("- 每帧增加新数据点，展示聚类如何随数据增长而演化")
+
 def main():
     """主函数"""
     print("K-Means聚类算法示例 - 客户分群")
@@ -512,6 +662,9 @@ def main():
     visualize_kmeans_principle()
     visualize_radar_chart(centroids_original, feature_columns)
 
+    # 9. 生成动画
+    create_animation(X_scaled, optimal_k)
+
     print("\n" + "=" * 70)
     print("K-Means聚类分析完成!")
     print("\n生成文件:")
@@ -521,6 +674,7 @@ def main():
     print("  - kmeans_feature_distributions.png (特征分布)")
     print("  - kmeans_principle.png (K-Means原理)")
     print("  - kmeans_radar_chart.png (聚类特征雷达图)")
+    print("  - kmeans_animation.gif (迭代过程动画)")
     print("=" * 70)
 
 if __name__ == "__main__":
