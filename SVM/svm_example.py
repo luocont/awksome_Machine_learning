@@ -14,6 +14,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+import os
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -349,6 +350,264 @@ def visualize_svm_concept():
     plt.savefig('svm_concept.png', dpi=300, bbox_inches='tight')
     print("SVM原理图已保存为 'svm_concept.png'")
 
+def create_animation(data, feature_columns):
+    """创建SVM动画 - 逐步添加数据点展示决策边界演化"""
+    print("\n" + "=" * 70)
+    print("开始生成SVM动画...")
+    print("=" * 70)
+
+    # 创建保存帧的目录
+    frames_dir = 'animation_frames'
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+
+    # 使用前两个特征进行2D可视化
+    feature_x = feature_columns[0]  # 花瓣长度
+    feature_y = feature_columns[1]  # 花瓣宽度
+
+    X_2d = data[[feature_x, feature_y]].values
+    y = data['品种'].values
+
+    # 打乱数据顺序，确保早期帧包含两个类别
+    class_0_indices = np.where(y == 0)[0]
+    class_1_indices = np.where(y == 1)[0]
+
+    np.random.shuffle(class_0_indices)
+    np.random.shuffle(class_1_indices)
+
+    # 交替排列两类样本
+    indices = []
+    min_len = min(len(class_0_indices), len(class_1_indices))
+    for i in range(min_len):
+        indices.append(class_0_indices[i])
+        indices.append(class_1_indices[i])
+
+    # 添加剩余样本
+    remaining = class_0_indices[min_len:] if len(class_0_indices) > min_len else class_1_indices[min_len:]
+    indices.extend(remaining)
+
+    indices = np.array(indices)
+    X_shuffled = X_2d[indices]
+    y_shuffled = y[indices]
+
+    print(f"总共有 {len(X_2d)} 个数据点")
+    print(f"使用特征: {feature_x}, {feature_y}")
+
+    # 从第6个点开始生成帧(确保每类至少有3个点)
+    start_points = 6
+
+    for n_points in range(start_points, len(X_shuffled) + 1):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+        # 当前数据
+        x_current = X_shuffled[:n_points]
+        y_current = y_shuffled[:n_points]
+
+        # 标准化
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        x_current_scaled = scaler.fit_transform(x_current)
+
+        # 训练SVM (使用RBF核)
+        model = SVC(kernel='rbf', gamma='scale', random_state=42, probability=True)
+        model.fit(x_current_scaled, y_current)
+
+        # 计算准确率
+        y_pred = model.predict(x_current_scaled)
+        accuracy = accuracy_score(y_current, y_pred)
+
+        # 创建网格用于绘制决策边界
+        x_min, x_max = x_current_scaled[:, 0].min() - 0.5, x_current_scaled[:, 0].max() + 0.5
+        y_min, y_max = x_current_scaled[:, 1].min() - 0.5, x_current_scaled[:, 1].max() + 0.5
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.03),
+                             np.arange(y_min, y_max, 0.03))
+
+        # 预测网格点
+        Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        # 预测概率
+        Z_proba = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
+        Z_proba = Z_proba.reshape(xx.shape)
+
+        # 左图: 决策边界和等高线
+        contour = ax1.contourf(xx, yy, Z_proba, levels=50, cmap='RdBu_r', alpha=0.8)
+        ax1.contour(xx, yy, Z, levels=[0.5], colors='black', linewidths=3)
+        plt.colorbar(contour, ax=ax1, label='维吉尼亚鸢尾概率')
+
+        # 绘制待添加的点(灰色)
+        if n_points < len(X_shuffled):
+            remaining_x = scaler.transform(X_shuffled[n_points:])
+            ax1.scatter(remaining_x[:, 0], remaining_x[:, 1],
+                       c='lightgray', s=60, alpha=0.4, edgecolors='gray',
+                       label='待添加点', zorder=1)
+
+        # 绘制当前已有的点
+        class_0_mask = y_current[:-1] == 0
+        class_1_mask = y_current[:-1] == 1
+
+        ax1.scatter(x_current_scaled[:-1][class_0_mask, 0],
+                   x_current_scaled[:-1][class_0_mask, 1],
+                   c='#e74c3c', s=100, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, label='山鸢尾', zorder=3)
+        ax1.scatter(x_current_scaled[:-1][class_1_mask, 0],
+                   x_current_scaled[:-1][class_1_mask, 1],
+                   c='#3498db', s=100, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, label='维吉尼亚鸢尾', zorder=3)
+
+        # 最新添加的点高亮
+        last_scaled = scaler.transform([x_current[-1]])[0]
+        last_color = '#3498db' if y_current[-1] == 1 else '#e74c3c'
+        ax1.scatter([last_scaled[0]], [last_scaled[1]], s=400, c=last_color,
+                   alpha=0.95, edgecolors='yellow', linewidth=4,
+                   zorder=5, label='新增点')
+
+        # 标记支持向量
+        if len(model.support_) > 0:
+            ax1.scatter(x_current_scaled[model.support_, 0],
+                       x_current_scaled[model.support_, 1],
+                       s=250, facecolors='none', edgecolors='lime',
+                       linewidths=3, zorder=4, label=f'支持向量 ({len(model.support_)}个)')
+
+        # 添加信息框
+        info_text = f'数据点数: {n_points}/{len(X_shuffled)}\n'
+        info_text += f'准确率: {accuracy*100:.2f}%\n'
+        info_text += f'山鸢尾: {(y_current==0).sum()}\n'
+        info_text += f'维吉尼亚: {(y_current==1).sum()}\n'
+        info_text += f'支持向量: {len(model.support_)}'
+
+        ax1.text(0.02, 0.98, info_text, transform=ax1.transAxes, fontsize=11,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
+
+        ax1.set_xlim(xx.min(), xx.max())
+        ax1.set_ylim(yy.min(), yy.max())
+        ax1.set_xlabel(f'{feature_x} (标准化)', fontsize=13)
+        ax1.set_ylabel(f'{feature_y} (标准化)', fontsize=13)
+        ax1.set_title(f'SVM决策边界演化 - 第 {n_points} 个数据点',
+                     fontsize=14, fontweight='bold')
+        ax1.legend(loc='center right', fontsize=9)
+        ax1.grid(alpha=0.3)
+
+        # 右图: 最大间隔和边界距离
+        # 绘制到决策边界的距离热力图
+        from sklearn.metrics.pairwise import rbf_kernel
+
+        # 计算每个点到决策边界的距离
+        decision_values = model.decision_function(np.c_[xx.ravel(), yy.ravel()])
+        decision_values = decision_values.reshape(xx.shape)
+
+        # 绘制决策值等高线
+        levels = np.linspace(decision_values.min(), decision_values.max(), 20)
+        contour2 = ax2.contourf(xx, yy, decision_values, levels=levels,
+                                cmap='RdYlGn', alpha=0.8)
+
+        # 决策边界(决策值=0)
+        ax2.contour(xx, yy, decision_values, levels=[0], colors='black', linewidths=4)
+
+        # 间隔边界(决策值=-1和1)
+        ax2.contour(xx, yy, decision_values, levels=[-1, 1],
+                   colors='yellow', linewidths=2, linestyles='--')
+
+        plt.colorbar(contour2, ax=ax2, label='决策值 (距离边界的距离)')
+
+        # 绘制数据点
+        if n_points < len(X_shuffled):
+            remaining_x = scaler.transform(X_shuffled[n_points:])
+            ax2.scatter(remaining_x[:, 0], remaining_x[:, 1],
+                       c='lightgray', s=60, alpha=0.4, edgecolors='gray', zorder=1)
+
+        ax2.scatter(x_current_scaled[:-1][class_0_mask, 0],
+                   x_current_scaled[:-1][class_0_mask, 1],
+                   c='#e74c3c', s=100, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, zorder=3)
+        ax2.scatter(x_current_scaled[:-1][class_1_mask, 0],
+                   x_current_scaled[:-1][class_1_mask, 1],
+                   c='#3498db', s=100, alpha=0.8, edgecolors='black',
+                   linewidth=1.5, zorder=3)
+
+        # 最新添加的点
+        ax2.scatter([last_scaled[0]], [last_scaled[1]], s=400, c=last_color,
+                   alpha=0.95, edgecolors='yellow', linewidth=4, zorder=5)
+
+        # 支持向量
+        if len(model.support_) > 0:
+            ax2.scatter(x_current_scaled[model.support_, 0],
+                       x_current_scaled[model.support_, 1],
+                       s=250, facecolors='none', edgecolors='lime',
+                       linewidths=3, zorder=4)
+
+        # SVM参数信息
+        svm_info = f'SVM模型参数:\n'
+        svm_info += f'核函数: RBF\n'
+        svm_info += f'支持向量数: {len(model.support_)}\n'
+        svm_info += f'类别0支持向量: {model.n_support_[0]}\n'
+        svm_info += f'类别1支持向量: {model.n_support_[1]}\n\n'
+        svm_info += f'间隔说明:\n'
+        svm_info += f'• 黑色实线: 决策边界\n'
+        svm_info += f'• 黄色虚线: 间隔边界\n'
+        svm_info += f'• 绿色圆圈: 支持向量\n'
+        svm_info += f'• 颜色表示到边界的距离'
+
+        ax2.text(0.02, 0.97, svm_info, transform=ax2.transAxes, fontsize=10,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.9))
+
+        ax2.set_xlim(xx.min(), xx.max())
+        ax2.set_ylim(yy.min(), yy.max())
+        ax2.set_xlabel(f'{feature_x} (标准化)', fontsize=13)
+        ax2.set_ylabel(f'{feature_y} (标准化)', fontsize=13)
+        ax2.set_title('决策边界和间隔可视化', fontsize=14, fontweight='bold')
+        ax2.grid(alpha=0.3)
+
+        plt.tight_layout()
+
+        # 保存帧
+        frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+        plt.savefig(frame_filename, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        if n_points % 10 == 0 or n_points == len(X_shuffled):
+            print(f"  已生成 {n_points}/{len(X_shuffled)} 帧")
+
+    print(f"\n所有帧已保存到: {frames_dir}/")
+
+    # 生成GIF
+    try:
+        from PIL import Image
+        print("\n正在生成GIF动画...")
+
+        frames = []
+        for n_points in range(start_points, len(X_shuffled) + 1):
+            frame_filename = os.path.join(frames_dir, f'frame_{n_points:03d}.png')
+            img = Image.open(frame_filename)
+            frames.append(img)
+
+        gif_path = 'svm_animation.gif'
+        frames[0].save(gif_path,
+                       save_all=True,
+                       append_images=frames[1:],
+                       duration=500,
+                       loop=0)
+
+        print(f"✅ GIF动画已保存为: {gif_path}")
+
+    except ImportError:
+        print("⚠️  PIL未安装，无法生成GIF")
+        print("   安装方法: pip install Pillow")
+
+    print("\n📊 动画说明:")
+    print("- 红色点: 山鸢尾 (Class 0)")
+    print("- 蓝色点: 维吉尼亚鸢尾 (Class 1)")
+    print("- 黄色光圈: 最新添加的数据点")
+    print("- 灰色点: 待添加的数据点")
+    print("- 绿色圆圈: 支持向量 (决定决策边界的关键点)")
+    print("- 黑色实线: 决策边界 (概率=0.5)")
+    print("- 黄色虚线: 间隔边界 (决策值=±1)")
+    print("- 左图: 分类概率热力图")
+    print("- 右图: 决策值/距离热力图")
+    print("- 观察支持向量和决策边界如何随着数据增加而演化")
+
 def main():
     """主函数"""
     print("支持向量机(SVM)示例 - 鸢尾花品种分类")
@@ -443,6 +702,9 @@ def main():
     visualize_feature_distributions(data, feature_columns)
     visualize_svm_concept()
 
+    # 9. 生成动画
+    create_animation(data, feature_columns)
+
     print(f"\n{'='*70}")
     print("SVM分析完成!")
     print("\n生成文件:")
@@ -450,6 +712,7 @@ def main():
     print("  - svm_decision_boundary.png (决策边界可视化)")
     print("  - svm_feature_distribution.png (特征分布)")
     print("  - svm_concept.png (SVM原理图)")
+    print("  - svm_animation.gif (学习过程动画)")
     print(f"{'='*70}")
 
 if __name__ == "__main__":
