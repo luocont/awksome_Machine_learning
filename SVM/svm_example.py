@@ -544,10 +544,10 @@ def create_animation(data, feature_columns):
         svm_info += f'类别0支持向量: {model.n_support_[0]}\n'
         svm_info += f'类别1支持向量: {model.n_support_[1]}\n\n'
         svm_info += f'间隔说明:\n'
-        svm_info += f'• 黑色实线: 决策边界\n'
-        svm_info += f'• 黄色虚线: 间隔边界\n'
-        svm_info += f'• 绿色圆圈: 支持向量\n'
-        svm_info += f'• 颜色表示到边界的距离'
+        svm_info += f'- 黑色实线: 决策边界\n'
+        svm_info += f'- 黄色虚线: 间隔边界\n'
+        svm_info += f'- 绿色圆圈: 支持向量\n'
+        svm_info += f'- 颜色表示到边界的距离'
 
         ax2.text(0.02, 0.97, svm_info, transform=ax2.transAxes, fontsize=10,
                 verticalalignment='top',
@@ -596,7 +596,7 @@ def create_animation(data, feature_columns):
         print("⚠️  PIL未安装，无法生成GIF")
         print("   安装方法: pip install Pillow")
 
-    print("\n📊 动画说明:")
+    print("\n动画说明:")
     print("- 红色点: 山鸢尾 (Class 0)")
     print("- 蓝色点: 维吉尼亚鸢尾 (Class 1)")
     print("- 黄色光圈: 最新添加的数据点")
