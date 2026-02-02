@@ -167,22 +167,5 @@ awksome_Machine_learning/
 
 ---
 
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
----
-
-## 📄 许可证
-
-MIT License - 自由使用和学习
-
----
-
-## 🙏 致谢
-
-感谢 scikit-learn、XGBoost 等优秀的开源项目！
-
----
 
 **Happy Learning! 🚀**
