@@ -29,7 +29,7 @@
 ### 安装依赖
 
 ```bash
-pip install pandas numpy scikit-learn matplotlib seaborn xgboost
+pip install requirements.txt
 ```
 
 ### 运行任意算法示例
