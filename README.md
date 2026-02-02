@@ -1,6 +1,6 @@
 # 机器学习算法最小实例库
 
-🤖 一个面向初学者的机器学习算法示例集合，包含7种经典算法的完整实现和详细教程。
+🤖 一个面向初学者的机器学习算法示例集合，包含9种经典算法的完整实现和详细教程。
 
 ---
 
@@ -8,7 +8,7 @@
 
 | 算法 | 类型 | 应用场景 | 难度 |
 |------|------|----------|------|
-| **线性回归** | 回归 | 房价预测、趋势分析 | ⭐ |
+| **最小二乘回归** | 回归 | 房价预测、参数估计 | ⭐ |
 | **逻辑回归** | 分类 | 信用评估、疾病诊断 | ⭐ |
 | **KNN** | 分类 | 推荐系统、图像识别 | ⭐ |
 | **SVM** | 分类 | 文本分类、生物信息学 | ⭐⭐ |
@@ -46,6 +46,11 @@ python decision_tree_example.py
 
 ```
 awksome_Machine_learning/
+├── least_squares_regression/   # 最小二乘回归
+│   ├── least_squares_example.py
+│   ├── least_squares_sample.csv
+│   ├── generate_data.py
+│   └── README.md
 ├── Linear_Regression/          # 线性回归
 │   ├── linear_regression.py
 │   └── linear_regression_README.md
@@ -105,6 +110,11 @@ awksome_Machine_learning/
 ---
 
 ## 📖 各算法详细说明
+
+### 最小二乘回归 (Least Squares Regression)
+- **用途**: 回归分析、参数估计
+- **示例**: 根据房屋特征预测房价
+- **核心概念**: 正规方程、梯度下降、残差分析
 
 ### 线性回归 (Linear Regression)
 - **用途**: 预测连续数值
